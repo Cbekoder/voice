@@ -84,4 +84,3 @@ if __name__ == '__main__':
     window = AudioRecorderApp()
     window.show()
     sys.exit(app.exec_())
-a
