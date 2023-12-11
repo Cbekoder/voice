@@ -1,69 +1,87 @@
 import sys
 import numpy as np
-from PyQt5.QtWidgets import QApplication, QMainWindow, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QApplication, QMainWindow, QPushButton, QVBoxLayout, QWidget
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
-from PyQt5.QtCore import QTimer
+import sounddevice as sd
+import matplotlib.pyplot as plt
 
-class VisualizerApp(QMainWindow):
+class AudioRecorderApp(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.init_ui()
 
     def init_ui(self):
-        self.setWindowTitle('Sound Visualizer')
+        self.setWindowTitle('Audio Recorder')
         self.setGeometry(100, 100, 800, 600)
 
-        self.canvas = SoundCanvas(self)
+        self.record_button = QPushButton('Record', self)
+        self.record_button.clicked.connect(self.toggle_recording)
+
+        self.play_button = QPushButton('Play', self)
+        self.play_button.clicked.connect(self.play_recorded_audio)
+
+        self.canvas = FrequencyCanvas(self)
 
         layout = QVBoxLayout()
+        layout.addWidget(self.record_button)
+        layout.addWidget(self.play_button)
         layout.addWidget(self.canvas)
 
         container = QWidget()
         container.setLayout(layout)
         self.setCentralWidget(container)
 
-        self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_visualization)
-        self.timer.start(50)  # Update every 50 milliseconds
+        self.recording = False
+        self.recorder = None
+        self.audio_data = None
 
-    def update_visualization(self):
-        self.canvas.update_plot()
+    def toggle_recording(self):
+        self.recording = not self.recording
+        if self.recording:
+            self.record_button.setText('Stop Recording')
+            self.start_recording()
+        else:
+            self.record_button.setText('Record')
+            self.stop_recording()
 
-class SoundCanvas(FigureCanvas):
+    def start_recording(self):
+        self.recorder = []
+        sd.InputStream(callback=self.callback).start()
+
+    def stop_recording(self):
+        sd.stop()
+
+    def callback(self, indata, frames, time, status):
+        if status:
+            print(status, flush=True)
+        if self.recording:
+            self.recorder.extend(indata.copy())
+            self.canvas.update_plot(indata)
+
+    def play_recorded_audio(self):
+        if self.recorder is not None:
+            self.audio_data = np.array(self.recorder)
+            sd.play(self.audio_data, samplerate=44100)
+            sd.wait()
+
+class FrequencyCanvas(FigureCanvas):
     def __init__(self, parent=None):
-        fig = Figure()
+        fig, self.ax = plt.subplots()
         super().__init__(fig)
         self.setParent(parent)
 
-        self.ax = fig.add_subplot(111)
-        self.ax.set_xlim(0, 100)
-        self.ax.set_ylim(0, 255)
+        self.ax.set_xlim(0, 1000)
+        self.ax.set_ylim(0, 1)
 
-        self.WIDTH = 100
-        self.buffer_length_alt = 64
-        self.data_array_alt = np.zeros(self.buffer_length_alt)
-
-    def update_plot(self):
-        self.data_array_alt = np.random.rand(self.buffer_length_alt) * 255  # Replace this with your actual data
-
+    def update_plot(self, audio_data):
         self.ax.clear()
-        bar_width = (self.WIDTH / self.buffer_length_alt)
-        x = 0
-
-        for i in range(self.buffer_length_alt):
-            bar_height = self.data_array_alt[i]
-
-            color = (bar_height + 100, 50, 50)
-            self.ax.bar(x, bar_height / 2, bar_width, color=[c / 255 for c in color])
-
-            x += bar_width + 1
-
+        self.ax.specgram(audio_data[:, 0], Fs=44100, cmap='viridis')
         self.draw()
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
-    window = VisualizerApp()
+    window = AudioRecorderApp()
     window.show()
     sys.exit(app.exec_())
